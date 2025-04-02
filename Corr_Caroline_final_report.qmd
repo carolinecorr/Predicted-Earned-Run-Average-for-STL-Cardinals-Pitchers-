@@ -1,0 +1,338 @@
+---
+title: "Predicting Earned Run Average for STL Cardinals Pitchers"
+subtitle: |
+  | Final Project 
+  | Data Science 2 with R (STAT 301-2)
+author: "Caroline Corr"
+pagetitle: "Final Report Caroline Corr"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+```{r}
+#| label: packages-data
+#| echo: false
+
+# load packages
+library(tidyverse)
+library(tidymodels)
+library(here)
+
+# load data
+load(here('data/stl_pitching.rda'))
+
+```
+
+::: {.callout-tip icon="false"}
+## Github Repo Link
+
+[Final Project Repo Link (carolinecorr)](https://github.com/stat301-2-2025-winter/final-project-2-carolinecorr.git)
+:::
+
+# Introduction
+
+I am interested in predicting the earned run average (ERA) of pitchers from the St. Louis Cardinals. Despite being the MLB team with the second most World Series titles, the 'Cards seem to always have the same chink in their armor: pitching. While ERA is a baseball statistic directly calculated by dividing the number of earned runs a pitcher gives up by the number of innings pitched, a pitcher's performance can be influenced by a wide array of factors. Pitching is an incredibly mental and physical task, and variables such as one's age, experience, or previous games pitched can heavily contribute to their overall performance on the mound. By developing a robust predictive model for ERA, I hope to estimate pitching performance in a holistic way that could potentially provide further insights into the complicated dance of pitching for future inferential investigation.
+
+For this project, I have utilized the [St. Louis Cardinals Batting & Pitching (1882-2023)](https://www.kaggle.com/datasets/mattop/st-louis-cardinals-batting-and-pitching-1882-2023?select=STL_pitching.csv) dataset by Matt Op[^1]. The dataset contains two tables for batting and pitching statistics, but the scope of this project is limited to only the pitching table.
+
+[^1]: This dataset was sourced from kaggle.com
+
+# Data Overview
+
+#### EDA and Missingness Check
+
+As this is a regression prediction problem, the distribution of ERA is assessed on a continuous, numeric scale. ERA, while it does not technically have an upper bound, tends to be fairly small for MLB pitchers, for they will be removed from the mound should they give up many runs within one inning.
+
+```{r}
+#| label: fig-era-uni
+#| fig-cap: "Distribution of Target Variable: ERA"
+#| echo: false
+
+load(here('graphics/era_univariate.rda'))
+era_univariate
+```
+
+@fig-era-uni demonstrates this distribution, which is roughly centered around 3.5 - 4 earned runs. It is right-skewed due to the rarity of increasingly high ERAs. This graphic omits extremely high ERAs (\>20), but these observations are included during the predictive modeling process. ERA has a lower bound of 0, and it theoretically has no upper bound, although most observations will fall within the 0 to 10 range.
+
+```{r}
+#| label: tbl-era-summary
+#| tbl-cap: "ERA Summary Statistics"
+#| echo: false
+
+stl_pitching |>
+  summarize(
+    mean = mean(era, na_rm = TRUE),
+    median = median(era, na_rm = TRUE),
+    max = max(era, na_rm = TRUE),
+    sd = sd(era)
+  ) |>
+  knitr::kable(col.names = c("Mean", "Median", "Range", "Std Deviation"), 
+               digits = 4)
+```
+
+The upper bound of ERA in this dataset is 81, and the standard deviation is 5.4145. @tbl-era-summary testifies to the vast spread of ERA statistics within this dataset. This skewness (as demonstrated by the disparity between the mean and median) suggests that stratification, while always a good idea for predictive modeling, may be necessary.
+
+```{r}
+#| label: tbl-missingness
+#| tbl-cap: "Missingness Check"
+#| echo: false
+
+stl_pitching |>
+  skimr::skim_without_charts() |>
+  select(skim_type, skim_variable, n_missing) |>
+  knitr::kable(col.names = c("Variable Type", "Variable", "N Missing"))
+```
+
+Missingness is hardly an issue within this dataset. The one variable with missing values, `position`, may be explained by the fact that many MLB pitchers never get to see a live inning within a given season. For these players, their positions are coded as NAs. For example, Pitcher A could have been a closing pitcher (CP) in the 2014 season, but if he faced an injury and had to sit for the entirety of the 2015 season, he would technically not have a position.
+
+#### Note
+
+When conducting the exploratory data analysis of ERA, I noticed that there were 5 observations that were showing infinite values for ERA. Within this dataset, the ERA variable is a direct calculation from the earned run and innings pitched variables. Technically, if a pitcher gives up earned runs but **does not complete the inning**, that inning will not count towards their total innings pitched. This means that in cases such as these, ERA would be infinite in the dataset due to the earned runs being divided by 0, which is mathematically impossible. Since the offending observations only made up such a small part of the dataset, I merely omitted them from the rest of this study.
+
+# Methods
+
+## Data Splitting
+
+This is a regression prediction problem. For the initial data split, I used a proportion of 0.8, and I stratified along the target variable of ERA using the default number of strata (4).
+
+## Model Types
+
+This exploration utilizes 6 model types:
+
+1.  Baseline/null model: Simple benchmark model to assess utility of more complex models
+
+2.  Ordinary linear regression model: multiple linear regression utilizing least squares methods
+
+3.  Elastic net model: generalized linear regression that constrains coefficients as a form of feature selection
+
+4.  K-nearest neighbors model: predicts target variable by averaging the values of the closest/most similar data points in the set
+
+5.  Random forest model: ensemble of "trees" that split data based on a rule and averages each tree's predicted value
+
+6.  Boosted tree model: another tree ensemble method that builds or improves each tree from the previous one instead of averaging each prediction
+
+## Hyperparameter Tuning
+
+4 model types (elastic net, k-nearest neighbors, random forest, and boosted tree) require hyperparameter tuning. Here is a breakdown for each type and an explanation of each hyperparameter:
+
+#### Elastic Net
+
+- Penalty: controls the regularization of the model; decides how much model should be "penalized" for overfitting
+
+- Mixture: decides the relative amount of penalties to use in model; calculated as a proportion of L1 (penalty)
+
+#### K-Nearest Neighbors
+
+- Number of neighbors: the number of neighbors (most similar points) to draw predictions from
+
+#### Random Forest
+
+- Mtry: the number of predictors that are randomly sampled at each divergence
+
+- Min n: the minimum number of data points in a node that must be met before the node can split further
+
+**Note**: The number of trees, while tunable in some cases, was fixed at 1000 for this study. 
+
+#### Boosted Tree
+
+- Mtry: the number of predictors that are randomly sampled at each divergence
+
+- Min n: the minimum number of data points in a node that must be met before the node can split further
+
+- Learn rate: the contribution of each previous tree to the prediction
+
+- Tree depth: the number of splits in a single tree
+
+**Note**: Like random forest, the number of trees was fixed at 1000.
+
+## Recipes
+
+3 recipes were used for this study. The first was a simple recipe to be applied to the null and ordinary linear regression models. This recipe contained the following steps:
+- Removal of variables directly involved in the calculation of ERA (earned runs and innings pitched)
+- Imputation of the mode value to curb missingness in the position variable
+- Removal of all zero-variance predictors
+- Dummy encoding of all nominal predictors
+- Normalization (center and scaling) of all numeric predictors
+
+The second recipe was created for the k-nearest neighbors and elastic net models. It contained all of the previous steps as well as the following interaction terms:
+- Hits per nine innings and fielding independent of pitching
+- Hits per nine innings and walks per nine innings
+- Walks per nine innings and fielding independent of pitching
+
+These variables were found to be highly correlated with ERA and moderately correlated with one another, so they were designated as interaction terms.
+
+The last recipe was used for the two tree-based models, and it was exactly the same as the second recipe apart from the omission of the normalization step. Tree-based models do not require centering and scaling, so this step was not necessary for this recipe. 
+
+## Resampling
+
+Resamples were collected using the v-fold cross validation technique with 8 folds and 5 repeats. This means that each individual model was trained 40 different times during the preliminary fitting stage.
+
+## Performance Metrics
+
+As this is a regression problem, the primary performance metric used was root mean squared error (RMSE). However, $R^2$ and mean absolute error (MAE) were also calculated for the final model analysis. RMSE can be understood as the average wrong-ness of each model's predictions with consideration for outliers, $R^2$ describes the proportion of variation within the model that can be attributed to the predictors, and MAE is interpreted in a similar way to RMSE, but it is less sensitive to outliers.
+
+# Model Building and Selection Results
+
+Upon first model tuning, the following results were found:
+
+```{r}
+#| label: tbl-model-results
+#| tbl-cap: "Best Model for Each Model Type (First Tuning)"
+#| echo: false
+
+load(here('graphics/first_tuning_rmse.rda'))
+
+first_tuning_rmse
+```
+
+The random forest model type had the lowest RMSE value, but the hyperparameter plot suggested that a higher upper bound for the number of randomly selected predictors should be searched. Initially, the upper bound was set to 18. @fig-rf
+shows how the performance metrics continue to improve as the bound increases past 18, leveling off around the 32 mark. 
+
+```{r}
+#| label: fig-rf
+#| fig-cap: "Performance Variations Across Tuning Ranges (Random Forest)"
+#| echo: false
+
+load(here('graphics/rf_plot.rda'))
+
+rf_plot
+
+```
+
+Progressing past this upper bound improved the RMSE of the best random forest model by more than one standard error of 0.0870 from the value in @tbl-model-results. @tbl-model-results2 includes the best hyperparameters for each model type after the tuning optimization process for random forest.
+
+```{r}
+#| label: tbl-model-results2
+#| tbl-cap: "Best Model for Each Model Type (Second Tuning)"
+#| echo: false
+
+load(here('graphics/second_tuning_rmse.rda'))
+
+second_tuning_rmse
+```
+
+It should be noted that the other model types did appear to be optimized after the first round of tuning, so only the best model type (random forest) was considered in the second round. Plots such as @fig-rf suggested that the hyperparameters could be improved, whereas the other model types showed their respective hyperparameters leveling off within the first tuning range. Another round of tuning followed the second for the random forest model, but the higher upper bound for the number of randomly selected predictors was less computationally efficient and it did not improve the performance metric. Also, as there are only 35 predictors used in the model, the number of randomly selected predictors should not exceed this.
+
+#### Final Model Selection
+
+```{r}
+#| label: fig-rmse-graph
+#| fig-cap: "Performance of Each Model Type"
+#| echo: false
+
+load(here('graphics/rmse_graph.rda'))
+
+rmse_graph
+```
+
+
+The winning model from this competition was the random forest model with the hyperparameters of mtry = 35 and min n = 3, for it was the most effective at minimized RMSE, and it was multiple standard errors lower than the second best model, boosted tree, as seen in @fig-rmse-graph. This seems sensible, for random forest models are powerful machine learning tools that function through averages. This model type is suitable for pitching data because the related predictions could be quite sensitive to overfitting for observations that demonstrate an uncharacteristically bad or good performance on the mound. Pitching statistics are amassed across the entire season, so a model type that is less sensitive to overfitting would be appropriate.
+
+
+# Final Model Analysis
+
+After completing the competition phase of predictive modeling, the winning random forest model was fit to the entire training set, and the following performance metrics were collected: 
+
+```{r}
+#| label: tbl-final-performance
+#| tbl-cap: "Performance Metrics for Final Model"
+#| echo: false
+
+load(here('graphics/performance_metrics.rda'))
+
+performance_metrics
+```
+
+The RMSE value featured in @tbl-final-performance was actually lower than that of @tbl-model-results2. The $R^2$ value was exceptionally high, and it indicates that the model accounts for 94.7% of the variation within the data, testifying to the model's considerable performance and accuracy. The MAE being almost a whole earned run lower than the RMSE suggests that there is quite a bit of variation in the errors, but the average error of each prediction is no more than 1.311 earned runs. Seeing as the range of ERA was said to be 81 in @tbl-era-summary, this model produces notably accurate predictions.
+
+```{r}
+#| label: fig-comp-plot
+#| fig-cap: "True vs. Predicted ERA Values"
+#| echo: false
+
+load(here('graphics/comp_plot_full.rda'))
+
+comp_plot_full
+```
+
+@fig-comp-plot demonstrates the errors between the true ERA and the predicted ERA of each observation in the testing set. The dashed line represents a perfect prediction, so a single point's proximity to the line represents its degree of accuracy. Points are heavily clustered in the range from 0 to 15 earned runs, and @fig-comp-zoom provides more insight into the variation within this clustered region: 
+
+
+```{r}
+#| label: fig-comp-zoom
+#| fig-cap: "True vs. Predicted ERA Values (Zoomed In)"
+#| echo: false
+
+load(here('graphics/comp_plot_zoom.rda'))
+
+comp_plot_zoom
+```
+
+The majority of the data falls within this region, and the predictions are remarkably close to the identity line. The errors do not seem to indicate any bias in either direction, for they are randomly scattered above and below the line, and the magnitude of the errors is fairly proportional as ERA increases. This plot demonstrates how the model is exceptionally adept making at predictions near the mean, but still considerably proficient in the higher ranges as well. 
+
+The success of this model as well as the difference between it and the lesser types seen in @fig-rmse-graph testify to the utility of creating complex models for the prediction of earned run average for STL pitchers. I believe the success of this model can be attributed to the random forest model's ability to curb the issue of overfitting and calculate predictions using a holistic approach.
+
+# Conclusion
+
+The results of this predictive study lend themselves to future study through inferential means. Even though ERA is a direct calculation of two other pitching statistics, this exploration demonstrates how a wide variety of considerations play a role in predicting a pitcher's performance, and this could potentially be generalized to different performance statistics such as WHIP (walks-hits per inning pitched), winning percentage, or number of strikeouts. As previously stated in the introduction, pitching is as mental as it is physical, and a mozaic of conditions come together to determine one's performance on the mound. Further studies could examine the **how** of each predictor, and each variable's magnitude in determining pitching performance. 
+
+I am particularly interested in the model's performance at the higher end of the ERA range, for these cases tend to have exceptional circumstances. Most MLB pitchers will give up a very small number of runs in each inning, but these high ERAs suggest that not only did a pitcher give up a high number of runs in very few innings, but also that their coach did not pull them before the damage was done. These extraordinary situations would seemingly be harder to capture in a predictive model, but I was pleased with my model's relative accuracy in doing so. This provides further testimony to the random forest's ability to synthesize complex observations featuring confusing and unique scenarios -- easily the most interesting cases for data scientist sport fans like me!
+
+# References
+
+Op, Matt. (2024). *St. Louis Cardinals Batting & Pitching (1882-2023)*. kaggle.com. https://www.kaggle.com/datasets/mattop/st-louis-cardinals-batting-and-pitching-1882-2023?select=STL_pitching.csv
+
+# Comment on Generative AI Use
+
+For the sections concerning model types and hyperparameter tuning with an explanation of each hyperparameter, I used ChatGPT to explain each in simple, digestible terms. I also utilized ChatGPT to troubleshoot issues occurring while I executed the code for this project. To do this, I would copy and paste the errors I received if I did not know how to handle them. 
+
+# Appendix - Tuning Parameter Analysis
+
+**Note**: The tuning plot for the winning model type, random forest, was featured above in @fig-rf.
+
+```{r}
+#| label: fig-bt
+#| fig-cap: "Performance Variations Across Tuning Ranges (Boosted Tree)"
+#| echo: false
+
+load(here('graphics/bt_plot.rda'))
+
+bt_plot
+```
+
+@fig-bt demonstrates how the upper bounds for each hyperparameter caused the performance metrics to worsen, so the ranges were appropriate the first round.
+
+```{r}
+#| label: fig-knn
+#| fig-cap: "Performance Variations Across Tuning Ranges (K-Nearest Neighbors)"
+#| echo: false
+
+load(here('graphics/knn_plot.rda'))
+
+knn_plot
+```
+
+The same can be said for @fig-knn, which shows how the RMSE increased after exceeding past 10 neighbors, so this range was adequate.
+
+```{r}
+#| label: fig-en
+#| fig-cap: "Performance Variations Across Tuning Ranges (Elastic Net)"
+#| echo: false
+
+load(here('graphics/en_plot.rda'))
+
+en_plot
+```
+
+@fig-en also shows a similar pattern where RMSE continued to increase as the amount of regularization (penalty) increased. It is worth noting that the best performing elastic net model was the lasso model with a penalty of approximately 1 and a mixture of 0. 

@@ -1,0 +1,99 @@
+---
+title: "Predicting Earned Run Average for STL Cardinals Pitchers"
+subtitle: |
+  | Final Project 
+  | Data Science 2 with R (STAT 301-2)
+author: "Caroline Corr"
+pagetitle: "Executive Summary Caroline Corr"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+::: {.callout-tip icon="false"}
+## Github Repo Link
+
+[Final Project Repo Link (carolinecorr)](https://github.com/stat301-2-2025-winter/final-project-2-carolinecorr.git)
+:::
+
+```{r}
+#| label: packages-data
+#| echo: false
+
+# load packages
+library(tidyverse)
+library(tidymodels)
+library(here)
+
+# load data
+load(here('data/stl_pitching.rda'))
+
+```
+
+
+
+# Project Overview
+
+As a life-long softball player and fan of professional baseball, the St. Louis Cardinals hold a special place in my heart. Despite holding the second most World Series titles in the league, their failures always seem to boil down to one common denominator: pitching. While sports performance statistics always seem to rely purely on the numbers, there is an immense mental dimension that has bearing on one's athletic performance. Baseball, while a team sport, is incredibly individual in the mental sphere, and pitching is perhaps the most difficult position on the field for this reason. 
+
+Through the utilization of machine learning techniques and statistical prediction programming, I created a predictive model capable of estimating one performance statistic, earned run average (ERA), from a wide variety of indirectly related predictors. This study utilized the [St. Louis Cardinals Batting & Pitching (1882-2023)](https://www.kaggle.com/datasets/mattop/st-louis-cardinals-batting-and-pitching-1882-2023?select=STL_pitching.csv) dataset by Matt Op, sourced from kaggle.com.
+
+# Results
+
+After the initial competition phase, the random forest model type proved to have the best performance, and the specific model utilized 35 randomly selected predictors and 3 data points before each node split. The results of the competition are shown here in @tbl-model-results2: 
+
+```{r}
+#| label: tbl-model-results2
+#| tbl-cap: "Best Model for Each Model Type (Second Tuning)"
+#| echo: false
+
+load(here('graphics/second_tuning_rmse.rda'))
+
+second_tuning_rmse
+```
+
+After fitting the best model to the entire training set, the following performance metrics were collected: 
+
+```{r}
+#| label: tbl-final-performance
+#| tbl-cap: "Performance Metrics for Final Model"
+#| echo: false
+
+load(here('graphics/performance_metrics.rda'))
+
+performance_metrics
+```
+
+The final fit actually reduced the root mean squared error (RMSE) from @tbl-model-results2 to @tbl-final-performance. The $R^2$ value indicates that approximately 94.7% of the variation within the data is explainable by the model, which is an exceptionally high amount. The mean average error (MAE) tends to treat each error equally while the RMSE penalizes errors of higher magnitude, so the disparity between the two suggests that there is a considerable amount of variance in the errors. However, seeing as the ERA values within the dataset ranged from 0 to 81, an average miss of no greater than around 1.3 earned runs is notably small. 
+
+```{r}
+#| label: fig-comp-plot
+#| fig-cap: "True vs. Predicted ERA Values"
+#| echo: false
+
+load(here('graphics/comp_plot_full.rda'))
+
+comp_plot_full
+```
+
+The model's accuracy is well-represented in @fig-comp-plot which demonstrates the magnitude of the error as it relates to each point's proximity to the line. The dashed line represents perfect predictions for each ERA value, so the closer a point is to it, the more accurate it is. The graph demonstrates how the model was not biased in either direction, for the points are randomly scattered above and below the line, and the average magnitude of error increases fairly proportionately with ERA. The model was most effective at forming accurate predictions near the mean, but it was still remarkably close in more extraordinary situations where the ERA exceeded 15 runs. 
+
+# Conclusion
+
+This exploration demonstrates how even though earned run average is a direct function of two other baseball statistics, other factors still play a role in determining a pitcher's performance on the mound. This model made predictions with notable accuracy despite not being able to draw off of the two metrics that are used to calculate ERA in the first place. This model's performance at more extreme values is particularly interesting, for situations where a pitcher would allow more than 15 runs without being pulled by their coach are rare and often come with unique contextual considerations. 
+
+#### Note: Comment on Generative AI Use
+
+# Comment on Generative AI Use
+
+For the sections concerning model types and hyperparameter tuning with an explanation of each hyperparameter in the final report, I used ChatGPT to explain each in simple, digestible terms. I also utilized ChatGPT to troubleshoot issues occurring while I executed the code for this project. To do this, I would copy and paste the errors I received if I did not know how to handle them. 
